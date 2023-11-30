@@ -1,76 +1,74 @@
 import os
-import re
-import requests
-
-header = {
-"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36" ,
-'referer':'https://www.ya.ru/'
-}
-url = "https://www.livelib.ru/reviews/"
-a = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, allow_redirects=False)
-a = a.content.decode('utf-8')
-
-with open('t.txt', 'w', encoding="utf-8") as output:
-    output.write(str(a))
+from time import sleep
+from bs4 import BeautifulSoup
+from selenium import webdriver
 
 
-with open("t.txt", "r", encoding="utf-8") as f:
-    e = f.read()
+def make_dir(name: str) -> None:
+    dirs = [f'{name}/{i}' for i in range(1, 6)]
+    if not os.path.isdir(name):
+        os.mkdir(name)
+    for dir_name in dirs:
+        if not os.path.isdir(dir_name):
+            os.mkdir(dir_name)
 
 
-lines = re.findall(r'<div class=\"lenta-card__rating\">\W{42}<span>\S{3}</span>\W{23}</div>', e)
-reviews = re.findall(r'<div id=\"lenta-card__text-review-escaped\">([^а-я^А-Я]+)([а-яёА-ЯЁ0-9 ,.%\":?!-«»‹›–—“”]+)', e)
-names = re.findall(r'<a class=\"lenta-card__book-title\" href=[\S]+>[a-zA-Zа-яёА-яЁ0-9 ,.?!\W\s]+\n', e)
-
-result = {}
-result_names = {}
-count_names = 0
-count_reviews = 0
-
-for line in lines:
-    temp = re.sub('<div class="lenta-card__rating">','', line)
-    temp = re.sub('\W{42}<span>','', temp)
-    temp = re.sub('</span>', '', temp)
-    temp = re.sub('\W{23}</div>', '', temp)
-
-    # print(temp)
-
-for r in reviews:
-    temp = re.sub('<div id=\"lenta-card__text-review-escaped\">', '', str(r))
-    temp = re.sub('<p>', '', temp)
-    temp = re.sub('<br>', '', temp)
-    temp = re.sub('<br/>', '', temp)
-    temp = re.sub('<blockquote>', '', temp)
-    temp = re.sub('\'', '', temp)
-    temp = re.sub(',', '', temp)
+def get_link_review(driver, links: str) -> str:
+    driver.get("https://www.livelib.ru" + links.get("href"))
+    sleep(2)
+    soup_review = BeautifulSoup(driver.page_source, "lxml")
+    try:
+        soup_review = soup_review.find("div", {"id": "lenta-card__text-review-full"}).text.strip()
+    except AttributeError:
+        soup_review = None
+    return soup_review
 
 
-    result[r] = temp
-    count_reviews += 1
-    #print(f"\n {temp}")
-
-print(f"{count_reviews}\n")
-
-for n in names:
-    temp = re.sub('<a class=\"lenta-card__book-title\" href=', '', n)
-    temp = re.sub('[\S]+>', '', temp)
-
-    result_names[n] = temp
-    count_names += 1
-    #print(temp)
-
-print(count_names)
-
-with open('data.txt', 'w', encoding="utf-8") as output:
-    for key in result_names.keys():
-        values_of_names = result_names[key]
-        output.write(values_of_names + '\n' + '\n')
-    for key in result.keys():
-        values_of_reviews = result[key]
-        output.write(values_of_reviews + '\n' + '\n')
+def write_review(number: int, title: str, links: str, rating: int, driver, name: str, rating_n: str) -> None:
+    name_file = f'{name}/{rating}/{str(number).zfill(4)}.txt'
+    with open(name_file, 'w', encoding="utf-8") as f:
+        try:
+            f.write(title.text.strip() + '\n' + rating_n + '\n' + get_link_review(driver, links)) #
+        except TypeError:
+            f.write(title.text.strip() + '\n' + rating_n + '\n' + " ")
 
 
-# with open('names.txt', 'w', encoding="utf-8") as output:
-#     for key in result_names.keys():
-#         values_of_dict = result_names[key]
-#         output.write(values_of_dict + '\n' + '\n')
+def download_reviews(count: int, name: str) -> None:
+    number_list = 2
+    rating_review = [0] * 5
+    driver = webdriver.Chrome() # Chrome можно поменять на Edge чтобы попытаться обойти защиту от DDos
+    driver.maximize_window()
+    while rating_review[4] < count or rating_review[3] < count or rating_review[2] < count or rating_review[1] < count or rating_review[0] < count:
+        URL = f"https://www.livelib.ru/reviews/~{number_list}#reviews"
+        driver.get(URL)
+        sleep(1)
+        number_list += 1
+        soup = BeautifulSoup(driver.page_source, "lxml")
+
+        rating = soup.find_all("span", {"class": "lenta-card__mymark"})
+        title = soup.find_all("a", "lenta-card__book-title")
+        links = soup.find_all("a", {"class": "footer-card__link"})
+        for i in range(len(rating) - 1): 
+            if float(rating[i].text) <= 5.0 and float(rating[i].text) >= 4.5 and rating_review[4] < count:
+                rating_review[4] += 1
+                write_review(rating_review[4], title[i], links[i], 5, driver, name, rating[i].text)
+            elif float(rating[i].text) <= 4.4 and float(rating[i].text) >= 3.5 and rating_review[3] < count:
+                rating_review[3] += 1
+                write_review(rating_review[3], title[i], links[i], 4, driver, name, rating[i].text)
+            elif float(rating[i].text) <= 3.4 and float(rating[i].text) >= 2.5 and rating_review[2] < count:
+                rating_review[2] += 1
+                write_review(rating_review[2], title[i], links[i], 3, driver, name, rating[i].text)
+            elif float(rating[i].text) <= 2.4 and float(rating[i].text) >= 1.5 and rating_review[1] < count:
+                rating_review[1] += 1
+                write_review(rating_review[1], title[i], links[i], 2, driver, name, rating[i].text)
+            elif float(rating[i].text) <= 1.4 and rating_review[0] < count:
+                rating_review[0] += 1
+                write_review(rating_review[0], title[i], links[i], 1, driver, name, rating[i].text)
+
+    driver.close()
+    driver.quit()
+
+
+if __name__ == '__main__':
+    make_dir('data')
+    download_reviews(1000, 'data')
